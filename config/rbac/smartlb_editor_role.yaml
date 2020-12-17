@@ -1,0 +1,24 @@
+# permissions for end users to edit smartlbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: smartlb-editor-role
+rules:
+- apiGroups:
+  - lb.my.domain
+  resources:
+  - smartlbs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - lb.my.domain
+  resources:
+  - smartlbs/status
+  verbs:
+  - get

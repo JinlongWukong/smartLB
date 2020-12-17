@@ -1,0 +1,7 @@
+apiVersion: lb.my.domain/v1
+kind: SmartLB
+metadata:
+  name: smartlb-sample
+spec:
+  # Add fields here
+  foo: bar

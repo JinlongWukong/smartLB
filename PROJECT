@@ -1,0 +1,7 @@
+domain: my.domain
+repo: smartLB
+resources:
+- group: lb
+  kind: SmartLB
+  version: v1
+version: "2"

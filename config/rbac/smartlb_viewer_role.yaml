@@ -1,0 +1,20 @@
+# permissions for end users to view smartlbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: smartlb-viewer-role
+rules:
+- apiGroups:
+  - lb.my.domain
+  resources:
+  - smartlbs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - lb.my.domain
+  resources:
+  - smartlbs/status
+  verbs:
+  - get
