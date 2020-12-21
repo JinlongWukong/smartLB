@@ -4,4 +4,4 @@ managed server
 send events record
 finiliazer
 webhook
-agent
+agent(client-go)

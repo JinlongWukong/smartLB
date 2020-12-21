@@ -16,6 +16,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -75,12 +76,10 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	ports := make([]int32, 0)
-	if corev1.ServiceTypeNodePort == svc.Spec.Type {
-		for _, port := range svc.Spec.Ports {
-			ports = append(ports, port.NodePort)
-		}
-		log.Info("Node Ports found: " + fmt.Sprint(ports))
+	for _, port := range svc.Spec.Ports {
+		ports = append(ports, port.Port)
 	}
+	log.Info("Service Ports Found: " + fmt.Sprint(ports))
 
 	// fetch endpoints info
 	endpoint := &corev1.Endpoints{}
@@ -105,16 +104,30 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Info("Node IP found: " + *address.NodeName)
 		}
 	}
-
-	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) {
+	//update service spec externalIps
+	service := []string{smartlb.Spec.Vip}
+	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
+		svc.Spec.ExternalIPs = service
+		if err := r.Client.Update(context.TODO(), svc); err != nil {
+			log.Error(err, "Unable to update service")
+			return ctrl.Result{}, err
+		}
+		log.Info("Service vip was updated")
+	}
+	//update status
+	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) || !reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
 		smartlb.Status.NodeList = nodeInfo
+		smartlb.Status.ExternalIP = smartlb.Spec.Vip
 		if err := r.Client.Status().Update(ctx, smartlb); err != nil {
 			log.Error(err, "unable to update smartlb status")
 			return ctrl.Result{}, err
 		} else {
-			log.Info("Status was updated with real value")
+			log.Info("Status was updated")
 		}
 	}
+	//send to external lb
+	output, _ := json.Marshal(smartlb.Status)
+	log.Info(string(output))
 
 	return ctrl.Result{}, nil
 }

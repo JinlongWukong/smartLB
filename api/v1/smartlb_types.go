@@ -30,13 +30,15 @@ type SmartLBSpec struct {
 
 	Service   string `json:"service"`
 	Namespace string `json:"namespace"`
+	Vip       string `json:"vip"`
 }
 
 // SmartLBStatus defines the observed state of SmartLB
 type SmartLBStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	NodeList []NodeStatus `json:"nodestatus"`
+	NodeList   []NodeStatus `json:"nodestatus"`
+	ExternalIP string       `json:"vip"`
 }
 
 type NodeStatus struct {
