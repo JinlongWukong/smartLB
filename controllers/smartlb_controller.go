@@ -24,13 +24,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	lbv1 "smartLB/api/v1"
@@ -47,6 +47,8 @@ type SmartLBReconciler struct {
 
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=services/status,verbs=get
 
 func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
@@ -88,7 +90,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	//generate node status
-	appendIfMissing := func (slice []lbv1.NodeStatus, i lbv1.NodeStatus) []lbv1.NodeStatus {
+	appendIfMissing := func(slice []lbv1.NodeStatus, i lbv1.NodeStatus) []lbv1.NodeStatus {
 		for _, ele := range slice {
 			if reflect.DeepEqual(ele, i) {
 				return slice
@@ -122,7 +124,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// objects to Reconcile
 
 	mapFn := handler.ToRequestsFunc(
-		func (a handler.MapObject) []reconcile.Request {
+		func(a handler.MapObject) []reconcile.Request {
 			lb := &lbv1.SmartLBList{}
 			if err := r.Client.List(context.Background(), lb); err != nil {
 				log.Error(err, "List smartLB items failed!")
@@ -131,7 +133,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			for _, item := range lb.Items {
 				if item.Spec.Service == a.Meta.GetName() && item.Spec.Namespace == a.Meta.GetNamespace() {
 					return []reconcile.Request{
-						{ NamespacedName: types.NamespacedName {
+						{NamespacedName: types.NamespacedName{
 							Name:      item.ObjectMeta.Name,
 							Namespace: item.ObjectMeta.Namespace,
 						}},
@@ -142,7 +144,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})
 
 	p := predicate.Funcs{
-		UpdateFunc: func (e event.UpdateEvent) bool {
+		UpdateFunc: func(e event.UpdateEvent) bool {
 			log.Info("Update event")
 			lb := &lbv1.SmartLBList{}
 			if err := r.Client.List(context.Background(), lb); err != nil {
@@ -156,7 +158,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return false
 		},
-		CreateFunc: func (e event.CreateEvent) bool {
+		CreateFunc: func(e event.CreateEvent) bool {
 			log.Info("Creat event")
 			lb := &lbv1.SmartLBList{}
 			if err := r.Client.List(context.Background(), lb); err != nil {
