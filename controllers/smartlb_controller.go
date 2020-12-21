@@ -46,6 +46,21 @@ type SmartLBReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc *corev1.Service) error {
+	log.Info("deleting the external dependencies")
+	output, _ := json.Marshal(smartlb.Status)
+	log.Info(string(output))
+
+	svc.Spec.ExternalIPs = []string{}
+	if err := r.Client.Update(context.Background(), svc); err != nil {
+		log.Error(err, "Unable to remove service external IP")
+		return err
+	}
+	log.Info("the external dependencies was deleted")
+
+	return nil
+}
+
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
@@ -72,7 +87,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	svc := &corev1.Service{}
 	if err := r.Get(ctx, objkey, svc); err != nil {
 		log.Error(err, "unable to fetch service")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	ports := make([]int32, 0)
@@ -80,6 +95,38 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		ports = append(ports, port.Port)
 	}
 	log.Info("Service Ports Found: " + fmt.Sprint(ports))
+
+	// name of your custom finalizer
+	myFinalizerName := "cleanup"
+	if smartlb.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object.
+		if !containsString(smartlb.ObjectMeta.Finalizers, myFinalizerName) {
+			smartlb.ObjectMeta.Finalizers = append(smartlb.ObjectMeta.Finalizers, myFinalizerName)
+			if err := r.Client.Update(ctx, smartlb); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if containsString(smartlb.ObjectMeta.Finalizers, myFinalizerName) {
+			// our finalizer is present, so lets handle our external dependency
+			if err := r.deleteExternalDependency(smartlb, svc); err != nil {
+				// if fail to delete the external dependency here, return with error
+				// so that it can be retried
+				return reconcile.Result{}, err
+			}
+
+			// remove our finalizer from the list and update it.
+			smartlb.ObjectMeta.Finalizers = removeString(smartlb.ObjectMeta.Finalizers, myFinalizerName)
+			if err := r.Client.Update(ctx, smartlb); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+
+		// Our finalizer has finished, so the reconciler can do nothing.
+		return reconcile.Result{}, nil
+	}
 
 	// fetch endpoints info
 	endpoint := &corev1.Endpoints{}
@@ -108,7 +155,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	service := []string{smartlb.Spec.Vip}
 	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
 		svc.Spec.ExternalIPs = service
-		if err := r.Client.Update(context.TODO(), svc); err != nil {
+		if err := r.Client.Update(ctx, svc); err != nil {
 			log.Error(err, "Unable to update service")
 			return ctrl.Result{}, err
 		}
@@ -197,4 +244,26 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			servicePrct,
 		).
 		Complete(r)
+}
+
+//
+// Helper functions to check and remove string from a slice of strings.
+//
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) (result []string) {
+	for _, item := range slice {
+		if item == s {
+			continue
+		}
+		result = append(result, item)
+	}
+	return
 }
