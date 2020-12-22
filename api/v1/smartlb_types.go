@@ -31,6 +31,7 @@ type SmartLBSpec struct {
 	Service   string `json:"service"`
 	Namespace string `json:"namespace"`
 	Vip       string `json:"vip"`
+	Subscribe string `json:"subscribe,omitempty"`
 }
 
 // SmartLBStatus defines the observed state of SmartLB

@@ -1,7 +1,4 @@
-
-
-managed server
 send events record
-finiliazer
 webhook
-agent(client-go)
+no agent
+subscribe  validate

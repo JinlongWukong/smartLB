@@ -15,10 +15,13 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -47,16 +50,38 @@ type SmartLBReconciler struct {
 }
 
 func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc *corev1.Service) error {
-	log.Info("deleting the external dependencies")
+	log.Info("deleting the internal/external dependencies")
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info(string(output))
 
+	// remove ExernalIPs from service
 	svc.Spec.ExternalIPs = []string{}
 	if err := r.Client.Update(context.Background(), svc); err != nil {
 		log.Error(err, "Unable to remove service external IP")
 		return err
 	}
-	log.Info("the external dependencies was deleted")
+	log.Info("Remove service externalIPs successfully")
+
+	// remove Loadbalancer configuration from external if existed
+	if uri := smartlb.Spec.Subscribe; uri != "" {
+		client := &http.Client{}
+		jsonValue, _ := json.Marshal(output)
+		req, err := http.NewRequest("DELETE", uri, bytes.NewBuffer(jsonValue))
+		req.Header.Set("Content-type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Error(err, "http request failed")
+			return err
+		}
+
+		if resp.StatusCode == 200 {
+			log.Info("Remove external Loadbalance configuration successfully")
+		} else {
+			return fmt.Errorf("Wrong status-code returned from external Loadbalancer")
+		}
+	}
+
+	log.Info("the internal/external dependencies were deleted")
 
 	return nil
 }
@@ -89,7 +114,6 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	ports := make([]int32, 0)
 	for _, port := range svc.Spec.Ports {
 		ports = append(ports, port.Port)
@@ -151,7 +175,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Info("Node IP found: " + *address.NodeName)
 		}
 	}
-	//update service spec externalIps
+	//update service.spec externalIps
 	service := []string{smartlb.Spec.Vip}
 	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
 		svc.Spec.ExternalIPs = service
@@ -159,9 +183,9 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "Unable to update service")
 			return ctrl.Result{}, err
 		}
-		log.Info("Service vip was updated")
+		log.Info("Service externalIps was updated")
 	}
-	//update status
+	//update smartlb status
 	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) || !reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
 		smartlb.Status.NodeList = nodeInfo
 		smartlb.Status.ExternalIP = smartlb.Spec.Vip
@@ -169,12 +193,31 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "unable to update smartlb status")
 			return ctrl.Result{}, err
 		} else {
-			log.Info("Status was updated")
+			log.Info("Smartlb status was updated")
 		}
 	}
 	//send to external lb
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info(string(output))
+
+	if uri := smartlb.Spec.Subscribe; uri != "" {
+		client := &http.Client{}
+		jsonValue, _ := json.Marshal(output)
+		req, err := http.NewRequest("POST", uri, bytes.NewBuffer(jsonValue))
+		req.Header.Set("Content-type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Error(err, "http request failed")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		}
+
+		if resp.StatusCode == 200 {
+			log.Info("External LB configure successfully")
+		} else {
+			log.Info("External LB configure failed")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
