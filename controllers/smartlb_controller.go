@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,8 +46,9 @@ var log = logf.Log.WithName("SmartLB controller")
 // SmartLBReconciler reconciles a SmartLB object
 type SmartLBReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log      logr.Logger
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc *corev1.Service) error {
@@ -114,7 +116,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	ports := make([]int32, 0)
+	ports := make([]int32, 0, 10)
 	for _, port := range svc.Spec.Ports {
 		ports = append(ports, port.Port)
 	}
@@ -184,6 +186,8 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return ctrl.Result{}, err
 		}
 		log.Info("Service externalIps was updated")
+		r.Recorder.Event(smartlb, "Normal", "Updated",
+			fmt.Sprintf("service %s was updated with a ExternalIP %s", svc.Name, smartlb.Spec.Vip))
 	}
 	//update smartlb status
 	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) || !reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
