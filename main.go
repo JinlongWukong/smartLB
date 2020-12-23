@@ -28,6 +28,7 @@ import (
 
 	lbv1 "smartLB/api/v1"
 	"smartLB/controllers"
+	"smartLB/controllers/customize_webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -46,7 +47,7 @@ func init() {
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
-	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-addr", ":8081", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -76,6 +77,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SmartLB")
 		os.Exit(1)
 	}
+
+	if err = (&lbv1.SmartLB{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SmartLB")
+		os.Exit(1)
+	}
+
+	mgr.GetWebhookServer().Register("/request", &customize_webhook.ReqHandler{})
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")

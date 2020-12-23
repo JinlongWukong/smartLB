@@ -1,4 +1,6 @@
 /*
+
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -21,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	lbv1 "smartLB/api/v1"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -37,11 +40,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	lbv1 "smartLB/api/v1"
 )
 
 var log = logf.Log.WithName("SmartLB controller")
+var Events = make(chan event.GenericEvent, 10)
 
 // SmartLBReconciler reconciles a SmartLB object
 type SmartLBReconciler struct {
@@ -88,6 +90,7 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 	return nil
 }
 
+// +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lb.my.domain,resources=smartlbs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
@@ -200,10 +203,9 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Info("Smartlb status was updated")
 		}
 	}
-	//send to external lb
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info(string(output))
-
+	//send to external lb
 	if uri := smartlb.Spec.Subscribe; uri != "" {
 		client := &http.Client{}
 		jsonValue, _ := json.Marshal(output)
@@ -249,8 +251,27 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return nil
 		})
+	//External generic event, return all CRs
+	requestFn := handler.ToRequestsFunc(
+		func(a handler.MapObject) []reconcile.Request {
+			lb := &lbv1.SmartLBList{}
+			if err := r.Client.List(context.Background(), lb); err != nil {
+				log.Error(err, "List smartLB items failed!")
+				return nil
+			}
+			requests := make([]reconcile.Request, 0)
+			for _, item := range lb.Items {
+				temp := reconcile.Request{NamespacedName: types.NamespacedName{
+					Name:      item.ObjectMeta.Name,
+					Namespace: item.ObjectMeta.Namespace,
+				}}
+				requests = append(requests, temp)
+			}
+			return requests
+		})
 
 	p := predicate.Funcs{
+		//If service defined in CRs, pass
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			log.Info("Update event")
 			lb := &lbv1.SmartLBList{}
@@ -265,6 +286,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return false
 		},
+		//If service defined in CRs, pass
 		CreateFunc: func(e event.CreateEvent) bool {
 			log.Info("Creat event")
 			lb := &lbv1.SmartLBList{}
@@ -279,14 +301,28 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return false
 		},
+		//External event, always return true currently
+		GenericFunc: func(genericEvent event.GenericEvent) bool {
+			log.Info("Generic event")
+			return true
+		},
 	}
 	servicePrct := builder.WithPredicates(p)
 
+	//Watch self
+	//Watch services
+	//Watch channel wire to external request
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&lbv1.SmartLB{}).
 		Watches(&source.Kind{Type: &corev1.Service{}},
 			&handler.EnqueueRequestsFromMapFunc{
 				ToRequests: mapFn,
+			},
+			servicePrct,
+		).
+		Watches(&source.Channel{Source: Events},
+			&handler.EnqueueRequestsFromMapFunc{
+				ToRequests: requestFn,
 			},
 			servicePrct,
 		).
