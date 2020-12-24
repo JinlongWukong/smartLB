@@ -208,14 +208,14 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if uri := smartlb.Spec.Subscribe; uri != "" {
 		resp, err := http.Post(uri, "application/json", bytes.NewBuffer(output))
 		if err != nil {
-			log.Error(err, "http request failed")
+			log.Error(err, "Http request failed")
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == 200 {
 			log.Info("External LB configure successfully")
 		} else {
-			log.Info("External LB configure failed")
+			log.Info("External LB configure failed, HTTP response Error: ", resp.StatusCode)
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 	}
