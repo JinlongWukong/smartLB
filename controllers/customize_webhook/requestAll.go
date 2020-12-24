@@ -9,6 +9,7 @@ import (
 type ReqHandler struct{}
 
 func (t *ReqHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+
 	switch req.Method {
 	case "POST":
 		controllers.Events <- event.GenericEvent{}

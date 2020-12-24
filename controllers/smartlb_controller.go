@@ -69,15 +69,14 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 	// remove Loadbalancer configuration from external if existed
 	if uri := smartlb.Spec.Subscribe; uri != "" {
 		client := &http.Client{}
-		jsonValue, _ := json.Marshal(output)
-		req, err := http.NewRequest("DELETE", uri, bytes.NewBuffer(jsonValue))
+		req, err := http.NewRequest("DELETE", uri, bytes.NewBuffer(output))
 		req.Header.Set("Content-type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Error(err, "http request failed")
 			return err
 		}
-
+		defer resp.Body.Close()
 		if resp.StatusCode == 200 {
 			log.Info("Remove external Loadbalance configuration successfully")
 		} else {
@@ -207,16 +206,12 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	log.Info(string(output))
 	//send to external lb
 	if uri := smartlb.Spec.Subscribe; uri != "" {
-		client := &http.Client{}
-		jsonValue, _ := json.Marshal(output)
-		req, err := http.NewRequest("POST", uri, bytes.NewBuffer(jsonValue))
-		req.Header.Set("Content-type", "application/json")
-		resp, err := client.Do(req)
+		resp, err := http.Post(uri, "application/json", bytes.NewBuffer(output))
 		if err != nil {
 			log.Error(err, "http request failed")
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
-
+		defer resp.Body.Close()
 		if resp.StatusCode == 200 {
 			log.Info("External LB configure successfully")
 		} else {
