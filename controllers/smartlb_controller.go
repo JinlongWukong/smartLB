@@ -69,7 +69,7 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 	// remove Loadbalancer configuration from external if existed
 	if uri := smartlb.Spec.Subscribe; uri != "" {
 		client := &http.Client{}
-		req, err := http.NewRequest("DELETE", uri, bytes.NewBuffer(output))
+		req, _ := http.NewRequest("DELETE", uri, bytes.NewBuffer(output))
 		req.Header.Set("Content-type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
@@ -77,10 +77,10 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 			return err
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode == 200 {
+		if resp.StatusCode/100 == 2 {
 			log.Info("Remove external Loadbalance configuration successfully")
 		} else {
-			return fmt.Errorf("Wrong status-code returned from external Loadbalancer")
+			return fmt.Errorf("wrong status-code returned from external Loadbalancer")
 		}
 	}
 
@@ -120,7 +120,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	ports := []int32{}
+	ports := make([]int32, 0)
 	for _, port := range svc.Spec.Ports {
 		ports = append(ports, port.Port)
 	}
@@ -203,7 +203,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "unable to update smartlb status")
 			return ctrl.Result{}, err
 		} else {
-			log.Info("Smartlb status was updated")
+			log.Info("smartlb status was updated")
 		}
 	}
 
@@ -217,7 +217,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode == 200 {
+		if resp.StatusCode/100 == http.StatusOK/100 {
 			log.Info("External LB configure successfully")
 		} else {
 			log.Info("External LB configure failed", "Return status code: ", resp.StatusCode)
