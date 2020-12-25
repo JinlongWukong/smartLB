@@ -220,7 +220,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if resp.StatusCode == 200 {
 			log.Info("External LB configure successfully")
 		} else {
-			log.Info("External LB configure failed, HTTP response Error: ", resp.StatusCode)
+			log.Info("External LB configure failed", "Return status code: ", resp.StatusCode)
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 	}

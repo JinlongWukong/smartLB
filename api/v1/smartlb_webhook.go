@@ -15,7 +15,10 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
+	"github.com/prometheus/common/log"
 	"k8s.io/apimachinery/pkg/runtime"
+	"net/http"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -52,16 +55,14 @@ var _ webhook.Validator = &SmartLB{}
 func (r *SmartLB) ValidateCreate() error {
 	smartlblog.Info("validate create", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object creation.
-	return nil
+	return r.ValidateSmartLB()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
 	smartlblog.Info("validate update", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object update.
-	return nil
+	return r.ValidateSmartLB()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -69,5 +70,27 @@ func (r *SmartLB) ValidateDelete() error {
 	smartlblog.Info("validate delete", "name", r.Name)
 
 	// TODO(user): fill in your validation logic upon object deletion.
+	return nil
+}
+
+// Generate part of validate
+func (r *SmartLB) ValidateSmartLB() error {
+	smartlblog.Info("validate smartLB", "name", r.Name)
+
+	if uri := r.Spec.Subscribe; uri != "" {
+		resp, err := http.Get(uri)
+		if err != nil {
+			log.Error(err, "Subscribe uri check failed!")
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+			log.Info("Subscribe uri check passed!")
+		} else {
+			log.Info("Subscribe uri check failed! ", "unexpected status code", resp.StatusCode)
+			return fmt.Errorf("subscribe uri status code unexpected! %v", resp.StatusCode)
+		}
+	}
+
 	return nil
 }
