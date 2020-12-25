@@ -51,6 +51,7 @@ type NodeStatus struct {
 // +kubebuilder:subresource:status
 
 // SmartLB is the Schema for the smartlbs API
+// +kubebuilder:printcolumn:name="Vip",type=string,JSONPath=`.status.vip`
 type SmartLB struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
