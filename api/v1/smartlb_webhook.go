@@ -16,7 +16,6 @@ package v1
 
 import (
 	"fmt"
-	"github.com/prometheus/common/log"
 	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,7 +24,7 @@ import (
 )
 
 // log is for logging in this package.
-var smartlblog = logf.Log.WithName("smartlb-resource")
+var log = logf.Log.WithName("smartlb-resource")
 
 func (r *SmartLB) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -41,7 +40,7 @@ var _ webhook.Defaulter = &SmartLB{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *SmartLB) Default() {
-	smartlblog.Info("default", "name", r.Name)
+	log.Info("default", "name", r.Name)
 
 	// TODO(user): fill in your defaulting logic.
 }
@@ -53,21 +52,21 @@ var _ webhook.Validator = &SmartLB{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *SmartLB) ValidateCreate() error {
-	smartlblog.Info("validate create", "name", r.Name)
+	log.Info("validate create", "name", r.Name)
 
 	return r.ValidateSmartLB()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
-	smartlblog.Info("validate update", "name", r.Name)
+	log.Info("validate update", "name", r.Name)
 
 	return r.ValidateSmartLB()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *SmartLB) ValidateDelete() error {
-	smartlblog.Info("validate delete", "name", r.Name)
+	log.Info("validate delete", "name", r.Name)
 
 	// TODO(user): fill in your validation logic upon object deletion.
 	return nil
@@ -75,7 +74,7 @@ func (r *SmartLB) ValidateDelete() error {
 
 // Generate part of validate
 func (r *SmartLB) ValidateSmartLB() error {
-	smartlblog.Info("validate smartLB", "name", r.Name)
+	log.Info("validate smartLB", "name", r.Name)
 
 	if uri := r.Spec.Subscribe; uri != "" {
 		resp, err := http.Get(uri)
@@ -88,7 +87,7 @@ func (r *SmartLB) ValidateSmartLB() error {
 			log.Info("Subscribe uri check passed!")
 		} else {
 			log.Info("Subscribe uri check failed! ", "unexpected status code", resp.StatusCode)
-			return fmt.Errorf("subscribe uri status code unexpected! %v", resp.StatusCode)
+			return fmt.Errorf("subscribe uri return status code: %v", resp.StatusCode)
 		}
 	}
 
