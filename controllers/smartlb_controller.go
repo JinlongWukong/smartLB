@@ -118,7 +118,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	ports := make([]int32, 0, 10)
+	ports := []int32{}
 	for _, port := range svc.Spec.Ports {
 		ports = append(ports, port.Port)
 	}
@@ -179,6 +179,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Info("Node IP found: " + *address.NodeName)
 		}
 	}
+
 	//update service.spec externalIps
 	service := []string{smartlb.Spec.Vip}
 	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
@@ -192,7 +193,8 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			fmt.Sprintf("service %s was updated with a ExternalIP %s", svc.Name, smartlb.Spec.Vip))
 	}
 	//update smartlb status
-	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) || !reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
+	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) ||
+		!reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
 		smartlb.Status.NodeList = nodeInfo
 		smartlb.Status.ExternalIP = smartlb.Spec.Vip
 		if err := r.Client.Status().Update(ctx, smartlb); err != nil {
@@ -202,6 +204,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Info("Smartlb status was updated")
 		}
 	}
+
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info(string(output))
 	//send to external lb
@@ -227,7 +230,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Define a mapping from the object in the event to one or more
 	// objects to Reconcile
 
-	mapFn := handler.ToRequestsFunc(
+	svcMapFn := handler.ToRequestsFunc(
 		func(a handler.MapObject) []reconcile.Request {
 			lb := &lbv1.SmartLBList{}
 			if err := r.Client.List(context.Background(), lb); err != nil {
@@ -235,7 +238,8 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return nil
 			}
 			for _, item := range lb.Items {
-				if item.Spec.Service == a.Meta.GetName() && item.Spec.Namespace == a.Meta.GetNamespace() {
+				if item.Spec.Service == a.Meta.GetName() &&
+					item.Spec.Namespace == a.Meta.GetNamespace() {
 					return []reconcile.Request{
 						{NamespacedName: types.NamespacedName{
 							Name:      item.ObjectMeta.Name,
@@ -247,7 +251,7 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return nil
 		})
 	//External generic event, return all CRs
-	requestFn := handler.ToRequestsFunc(
+	requestMapFn := handler.ToRequestsFunc(
 		func(a handler.MapObject) []reconcile.Request {
 			lb := &lbv1.SmartLBList{}
 			if err := r.Client.List(context.Background(), lb); err != nil {
@@ -275,7 +279,8 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			}
 			for _, item := range lb.Items {
-				if item.Spec.Service == e.MetaNew.GetName() && item.Spec.Namespace == e.MetaNew.GetNamespace() {
+				if item.Spec.Service == e.MetaNew.GetName() &&
+					item.Spec.Namespace == e.MetaNew.GetNamespace() {
 					return true
 				}
 			}
@@ -290,7 +295,8 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			}
 			for _, item := range lb.Items {
-				if item.Spec.Service == e.Meta.GetName() && item.Spec.Namespace == e.Meta.GetNamespace() {
+				if item.Spec.Service == e.Meta.GetName() &&
+					item.Spec.Namespace == e.Meta.GetNamespace() {
 					return true
 				}
 			}
@@ -311,37 +317,15 @@ func (r *SmartLBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&lbv1.SmartLB{}).
 		Watches(&source.Kind{Type: &corev1.Service{}},
 			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: mapFn,
+				ToRequests: svcMapFn,
 			},
 			servicePrct,
 		).
 		Watches(&source.Channel{Source: Events},
 			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: requestFn,
+				ToRequests: requestMapFn,
 			},
 			servicePrct,
 		).
 		Complete(r)
-}
-
-//
-// Helper functions to check and remove string from a slice of strings.
-//
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-func removeString(slice []string, s string) (result []string) {
-	for _, item := range slice {
-		if item == s {
-			continue
-		}
-		result = append(result, item)
-	}
-	return
 }
