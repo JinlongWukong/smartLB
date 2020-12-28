@@ -17,22 +17,16 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"reflect"
-	lbv1 "smartLB/api/v1"
-	"smartLB/controllers/ipvs"
-	"time"
-
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/exec"
+	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	lbv1 "smartLB/api/v1"
+	"smartLB/controllers/ipvs"
 )
 
 var log = logf.Log.WithName("SmartLB controller")
@@ -58,18 +54,22 @@ type SmartLBReconciler struct {
 }
 
 func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc *corev1.Service) error {
+
 	log.Info("Deleting the internal/external dependencies")
+
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info("LB configuration: " + string(output))
 
-	// remove ExernalIPs from service
+	// Remove ExternalIPs from kubernetes service
+	// This ExternalIPs was assigned by smartLB, so need remove after smartlb deleted
 	svc.Spec.ExternalIPs = []string{}
 	if err := r.Client.Update(context.Background(), svc); err != nil {
-		log.Error(err, "Unable to remove service external IP")
+		log.Error(err, "Unable to remove kubernetes service externalIPs")
 		return err
 	}
-	log.Info("Remove service externalIPs successfully")
+	log.Info("Remove kubernetes service externalIPs successfully")
 
+	// Remove virtual server configuration from LVS if localMode is used
 	if r.LocalMode {
 		scheduler := smartlb.Spec.Scheduler
 		if scheduler == "" {
@@ -89,21 +89,10 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 		}
 	}
 
-	// remove Loadbalancer configuration from external if existed
+	// Delete lb configuration to subscribe if have
 	if uri := smartlb.Spec.Subscribe; uri != "" {
-		client := &http.Client{}
-		req, _ := http.NewRequest("DELETE", uri, bytes.NewBuffer(output))
-		req.Header.Set("Content-type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error(err, "http request failed")
+		if err := SendLBToSubscribe(uri, "DELETE", output); err != nil {
 			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode/100 == 2 {
-			log.Info("Remove external Loadbalance configuration successfully")
-		} else {
-			return fmt.Errorf("wrong status-code returned from external Loadbalancer")
 		}
 	}
 
@@ -132,15 +121,15 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	//used to fetch service/endpoints
-	objkey := client.ObjectKey{
+	// used to fetch kubernetes service/endpoints
+	objKey := client.ObjectKey{
 		Namespace: smartlb.Spec.Namespace,
 		Name:      smartlb.Spec.Service,
 	}
 
 	// fetch service info
 	svc := &corev1.Service{}
-	if err := r.Get(ctx, objkey, svc); err != nil {
+	if err := r.Get(ctx, objKey, svc); err != nil {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -153,7 +142,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	// fetch endpoints info
 	endpoint := &corev1.Endpoints{}
-	if err := r.Get(ctx, objkey, endpoint); err != nil {
+	if err := r.Get(ctx, objKey, endpoint); err != nil {
 		log.Error(err, "unable to fetch endpoints")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -191,7 +180,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, nil
 	}
 
-	//update kubernetes service.spec externalIps
+	// update kubernetes service.spec externalIps
 	service := []string{smartlb.Spec.Vip}
 	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
 		svc.Spec.ExternalIPs = service
@@ -205,7 +194,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	//generate latest status
+	// generate latest status
 	currentStatus := lbv1.SmartLBStatus{}
 	currentStatus.Ports = ports
 	currentStatus.ExternalIP = smartlb.Spec.Vip
@@ -231,18 +220,14 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		weight:        1,
 	}
 
-	//update smartlb status
+	// update smartlb status
 	if !reflect.DeepEqual(smartlb.Status, currentStatus) {
-		//if vip changed, remove old virtual server
-		//if vip not changed, But port or protocol changed, remove old virtual server
+		//if vip changed, remove all old virtual server
+		//if vip not changed, But port or protocol changed, remove delta old virtual server
+		tobeRemove := lbv1.SmartLBStatus{}
 		if smartlb.Status.ExternalIP != currentStatus.ExternalIP {
-			if r.LocalMode {
-				if err := lvs.Delete(smartlb.Status); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
+			tobeRemove = smartlb.Status
 		} else {
-			tobeRemove := lbv1.SmartLBStatus{}
 			tobeRemove.ExternalIP = currentStatus.ExternalIP
 			curPorts := map[string]lbv1.PortStatus{}
 			oldPorts := map[string]lbv1.PortStatus{}
@@ -257,8 +242,21 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 					tobeRemove.Ports = append(tobeRemove.Ports, element)
 				}
 			}
+		}
+		if len(tobeRemove.Ports) > 0 {
+			// Print tobe removed configuration
+			output, _ := json.Marshal(tobeRemove)
+			log.Info("Tobe removed LB configuration: " + string(output))
+
+			// Delete from LVS
 			if r.LocalMode {
 				if err := lvs.Delete(tobeRemove); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			// Delete lb configuration to subscribe if have
+			if uri := smartlb.Spec.Subscribe; uri != "" {
+				if err := SendLBToSubscribe(uri, "DELETE", output); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
@@ -271,31 +269,25 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		} else {
 			log.Info("Smartlb status was updated! ", "CR name: ", smartlb.Name)
 		}
+
 		return ctrl.Result{}, nil
 	}
 
+	// Print loadBalance configuration
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info("LB configuration: " + string(output))
 
+	// Configure LVS
 	if r.LocalMode {
 		if err := lvs.Create(smartlb.Status); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	//send lb configuration to subscribe if have
+	// Send lb configuration to subscribe if have
 	if uri := smartlb.Spec.Subscribe; uri != "" {
-		resp, err := http.Post(uri, "application/json", bytes.NewBuffer(output))
-		if err != nil {
-			log.Error(err, "Http request failed")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode/100 == http.StatusOK/100 {
-			log.Info("External LB configure successfully")
-		} else {
-			log.Info("External LB configure failed", "Return status code: ", resp.StatusCode)
-			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		if err := SendLBToSubscribe(uri, "POST", output); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 

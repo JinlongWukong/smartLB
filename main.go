@@ -34,10 +34,8 @@ import (
 )
 
 var (
-	scheme        = runtime.NewScheme()
-	setupLog      = ctrl.Log.WithName("setup")
-	LocalMode     bool
-	BindInterface string
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -50,18 +48,21 @@ func init() {
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
+	var localMode bool
+	var bindInterface string
+
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8081", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&LocalMode, "enable-local-mode", true, "whether run this controller on lvs server")
-	flag.StringVar(&BindInterface, "bind-interface", "", "which interface the vip will bind")
+	flag.BoolVar(&localMode, "enable-local-mode", true, "whether run this controller on lvs server")
+	flag.StringVar(&bindInterface, "bind-interface", "", "which interface the vip will bind")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	if LocalMode {
-		if BindInterface == "" {
+	if localMode {
+		if bindInterface == "" {
 			setupLog.Error(errors.New("the bind interface must be give if local mode enabled"), "program exited")
 			os.Exit(1)
 		}
@@ -85,8 +86,8 @@ func main() {
 		Log:           ctrl.Log.WithName("controllers").WithName("SmartLB"),
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorderFor("smartLB recorder"),
-		LocalMode:     LocalMode,
-		BindInterface: BindInterface,
+		LocalMode:     localMode,
+		BindInterface: bindInterface,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SmartLB")
 		os.Exit(1)
