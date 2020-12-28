@@ -19,6 +19,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"github.com/prometheus/common/log"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,6 +63,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	if localMode {
+		log.Info("SmartLB is running using localMode")
 		if bindInterface == "" {
 			setupLog.Error(errors.New("the bind interface must be give if local mode enabled"), "program exited")
 			os.Exit(1)
