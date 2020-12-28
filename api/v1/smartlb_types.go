@@ -18,6 +18,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strconv"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -31,6 +32,7 @@ type SmartLBSpec struct {
 	Service   string `json:"service"`
 	Namespace string `json:"namespace"`
 	Vip       string `json:"vip"`
+	Scheduler string `json:"scheduler,omitempty"`
 	Subscribe string `json:"subscribe,omitempty"`
 }
 
@@ -38,13 +40,19 @@ type SmartLBSpec struct {
 type SmartLBStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	NodeList   []NodeStatus `json:"nodestatus"`
+
+	Nodes      []string     `json:"ipaddress"`
 	ExternalIP string       `json:"vip"`
+	Ports      []PortStatus `json:"ports"`
 }
 
-type NodeStatus struct {
-	IP   string  `json:"ipaddress"`
-	Port []int32 `json:"port"`
+type PortStatus struct {
+	Port     int32  `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
+func (ps PortStatus) String() string {
+	return ps.Protocol + strconv.Itoa(int(ps.Port))
 }
 
 // +kubebuilder:object:root=true

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 
@@ -33,8 +34,10 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme        = runtime.NewScheme()
+	setupLog      = ctrl.Log.WithName("setup")
+	LocalMode     bool
+	BindInterface string
 )
 
 func init() {
@@ -51,9 +54,18 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&LocalMode, "enable-local-mode", true, "whether run this controller on lvs server")
+	flag.StringVar(&BindInterface, "bind-interface", "", "which interface the vip will bind")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+
+	if LocalMode {
+		if BindInterface == "" {
+			setupLog.Error(errors.New("the bind interface must be give if local mode enabled"), "program exited")
+			os.Exit(1)
+		}
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
@@ -69,10 +81,12 @@ func main() {
 	}
 
 	if err = (&controllers.SmartLBReconciler{
-		Client:   mgr.GetClient(),
-		Log:      ctrl.Log.WithName("controllers").WithName("SmartLB"),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("smartLB recorder"),
+		Client:        mgr.GetClient(),
+		Log:           ctrl.Log.WithName("controllers").WithName("SmartLB"),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      mgr.GetEventRecorderFor("smartLB recorder"),
+		LocalMode:     LocalMode,
+		BindInterface: BindInterface,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SmartLB")
 		os.Exit(1)

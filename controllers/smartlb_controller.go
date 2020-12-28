@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"reflect"
 	lbv1 "smartLB/api/v1"
+	"smartLB/controllers/ipvs"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,15 +50,17 @@ var Events = make(chan event.GenericEvent, 10)
 // SmartLBReconciler reconciles a SmartLB object
 type SmartLBReconciler struct {
 	client.Client
-	Log      logr.Logger
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Log           logr.Logger
+	Scheme        *runtime.Scheme
+	Recorder      record.EventRecorder
+	LocalMode     bool
+	BindInterface string
 }
 
 func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc *corev1.Service) error {
-	log.Info("deleting the internal/external dependencies")
+	log.Info("Deleting the internal/external dependencies")
 	output, _ := json.Marshal(smartlb.Status)
-	log.Info(string(output))
+	log.Info("LB configuration: " + string(output))
 
 	// remove ExernalIPs from service
 	svc.Spec.ExternalIPs = []string{}
@@ -65,6 +69,25 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 		return err
 	}
 	log.Info("Remove service externalIPs successfully")
+
+	if r.LocalMode {
+		scheduler := smartlb.Spec.Scheduler
+		if scheduler == "" {
+			scheduler = "rr"
+		}
+
+		lvs := IpvsLB{
+			ipvs:          ipvs.New(exec.New()),
+			netlinkHandle: ipvs.NewNetLinkHandle(false),
+			netDevice:     r.BindInterface,
+			ipvsScheduler: scheduler,
+			weight:        1,
+		}
+
+		if err := lvs.Delete(smartlb.Status); err != nil {
+			return err
+		}
+	}
 
 	// remove Loadbalancer configuration from external if existed
 	if uri := smartlb.Spec.Subscribe; uri != "" {
@@ -84,7 +107,7 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 		}
 	}
 
-	log.Info("the internal/external dependencies were deleted")
+	log.Info("The internal/external dependencies were deleted")
 
 	return nil
 }
@@ -109,6 +132,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	//used to fetch service/endpoints
 	objkey := client.ObjectKey{
 		Namespace: smartlb.Spec.Namespace,
 		Name:      smartlb.Spec.Service,
@@ -120,13 +144,22 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		log.Error(err, "unable to fetch service")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	ports := make([]int32, 0)
+	log.Info("Fetched kubernetes service: " + svc.Name)
+	ports := make([]lbv1.PortStatus, 0)
 	for _, port := range svc.Spec.Ports {
-		ports = append(ports, port.Port)
+		ports = append(ports, lbv1.PortStatus{Port: port.Port, Protocol: fmt.Sprint(port.Protocol)})
 	}
-	log.Info("Service Ports Found: " + fmt.Sprint(ports))
+	log.Info("Kubernetes service ports info: " + fmt.Sprint(ports))
 
-	// name of your custom finalizer
+	// fetch endpoints info
+	endpoint := &corev1.Endpoints{}
+	if err := r.Get(ctx, objkey, endpoint); err != nil {
+		log.Error(err, "unable to fetch endpoints")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log.Info("Fetched kubernetes endpoints: " + endpoint.Name)
+
+	// Define custom finalizer
 	myFinalizerName := "cleanup"
 	if smartlb.ObjectMeta.DeletionTimestamp.IsZero() {
 		// The object is not being deleted, so if it does not have our finalizer,
@@ -158,31 +191,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, nil
 	}
 
-	// fetch endpoints info
-	endpoint := &corev1.Endpoints{}
-	if err := r.Get(ctx, objkey, endpoint); err != nil {
-		log.Error(err, "unable to fetch endpoints")
-		return ctrl.Result{}, err
-	}
-
-	//generate node status
-	appendIfMissing := func(slice []lbv1.NodeStatus, i lbv1.NodeStatus) []lbv1.NodeStatus {
-		for _, ele := range slice {
-			if reflect.DeepEqual(ele, i) {
-				return slice
-			}
-		}
-		return append(slice, i)
-	}
-	nodeInfo := []lbv1.NodeStatus{}
-	for _, subnet := range endpoint.Subsets {
-		for _, address := range subnet.Addresses {
-			nodeInfo = appendIfMissing(nodeInfo, lbv1.NodeStatus{IP: *address.NodeName, Port: ports})
-			log.Info("Node IP found: " + *address.NodeName)
-		}
-	}
-
-	//update service.spec externalIps
+	//update kubernetes service.spec externalIps
 	service := []string{smartlb.Spec.Vip}
 	if !reflect.DeepEqual(svc.Spec.ExternalIPs, service) {
 		svc.Spec.ExternalIPs = service
@@ -190,26 +199,91 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "Unable to update service")
 			return ctrl.Result{}, err
 		}
-		log.Info("Service externalIps was updated")
+		log.Info("Kubernetes service externalIps was updated! ", "service name: ", svc.Name)
 		r.Recorder.Event(smartlb, "Normal", "Updated",
 			fmt.Sprintf("service %s was updated with a ExternalIP %s", svc.Name, smartlb.Spec.Vip))
+		return ctrl.Result{}, nil
 	}
-	//update smartlb status
-	if !reflect.DeepEqual(smartlb.Status.NodeList, nodeInfo) ||
-		!reflect.DeepEqual(smartlb.Status.ExternalIP, smartlb.Spec.Vip) {
-		smartlb.Status.NodeList = nodeInfo
-		smartlb.Status.ExternalIP = smartlb.Spec.Vip
-		if err := r.Client.Status().Update(ctx, smartlb); err != nil {
-			log.Error(err, "unable to update smartlb status")
-			return ctrl.Result{}, err
-		} else {
-			log.Info("smartlb status was updated")
+
+	//generate latest status
+	currentStatus := lbv1.SmartLBStatus{}
+	currentStatus.Ports = ports
+	currentStatus.ExternalIP = smartlb.Spec.Vip
+	for _, subnet := range endpoint.Subsets {
+		for _, address := range subnet.Addresses {
+			if !containsString(currentStatus.Nodes, *address.NodeName) {
+				currentStatus.Nodes = append(currentStatus.Nodes, *address.NodeName)
+				log.Info("Node(real sever) IP found: " + *address.NodeName)
+			}
 		}
 	}
 
+	scheduler := smartlb.Spec.Scheduler
+	if scheduler == "" {
+		scheduler = "rr"
+	}
+
+	lvs := IpvsLB{
+		ipvs:          ipvs.New(exec.New()),
+		netlinkHandle: ipvs.NewNetLinkHandle(false),
+		netDevice:     "ens3",
+		ipvsScheduler: scheduler,
+		weight:        1,
+	}
+
+	//update smartlb status
+	if !reflect.DeepEqual(smartlb.Status, currentStatus) {
+		//if vip changed, remove old virtual server
+		//if vip not changed, But port or protocol changed, remove old virtual server
+		if smartlb.Status.ExternalIP != currentStatus.ExternalIP {
+			if r.LocalMode {
+				if err := lvs.Delete(smartlb.Status); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		} else {
+			tobeRemove := lbv1.SmartLBStatus{}
+			tobeRemove.ExternalIP = currentStatus.ExternalIP
+			curPorts := map[string]lbv1.PortStatus{}
+			oldPorts := map[string]lbv1.PortStatus{}
+			for _, port := range currentStatus.Ports {
+				curPorts[port.String()] = port
+			}
+			for _, oldPort := range smartlb.Status.Ports {
+				oldPorts[oldPort.String()] = oldPort
+			}
+			for key, element := range oldPorts {
+				if _, ok := curPorts[key]; !ok {
+					tobeRemove.Ports = append(tobeRemove.Ports, element)
+				}
+			}
+			if r.LocalMode {
+				if err := lvs.Delete(tobeRemove); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+
+		smartlb.Status = currentStatus
+		if err := r.Client.Status().Update(ctx, smartlb); err != nil {
+			log.Error(err, "Unable to update smartlb status")
+			return ctrl.Result{}, err
+		} else {
+			log.Info("Smartlb status was updated! ", "CR name: ", smartlb.Name)
+		}
+		return ctrl.Result{}, nil
+	}
+
 	output, _ := json.Marshal(smartlb.Status)
-	log.Info(string(output))
-	//send to external lb
+	log.Info("LB configuration: " + string(output))
+
+	if r.LocalMode {
+		if err := lvs.Create(smartlb.Status); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	//send lb configuration to subscribe if have
 	if uri := smartlb.Spec.Subscribe; uri != "" {
 		resp, err := http.Post(uri, "application/json", bytes.NewBuffer(output))
 		if err != nil {
