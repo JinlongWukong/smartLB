@@ -194,15 +194,28 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
+	// fetch nodes info
+	nodesInfo := map[string]string{}
+	nodes := &corev1.NodeList{}
+	if err := r.Client.List(context.Background(), nodes); err != nil {
+		log.Error(err, "List all nodes failed!")
+		return ctrl.Result{}, err
+	}
+	for _, item := range nodes.Items {
+		nodesInfo[item.Name] = item.Status.Addresses[0].Address
+	}
+
 	// generate latest status
 	currentStatus := lbv1.SmartLBStatus{}
 	currentStatus.Ports = ports
 	currentStatus.ExternalIP = smartlb.Spec.Vip
 	for _, subnet := range endpoint.Subsets {
 		for _, address := range subnet.Addresses {
-			if !containsString(currentStatus.Nodes, *address.NodeName) {
-				currentStatus.Nodes = append(currentStatus.Nodes, *address.NodeName)
-				log.Info("Node(real sever) IP found: " + *address.NodeName)
+			if addr, ok := nodesInfo[*address.NodeName]; ok {
+				if !containsString(currentStatus.Nodes, addr) {
+					currentStatus.Nodes = append(currentStatus.Nodes, addr)
+					log.Info("Node(real sever) IP found: " + addr)
+				}
 			}
 		}
 	}
@@ -215,7 +228,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	lvs := IpvsLB{
 		ipvs:          ipvs.New(exec.New()),
 		netlinkHandle: ipvs.NewNetLinkHandle(false),
-		netDevice:     "ens3",
+		netDevice:     r.BindInterface,
 		ipvsScheduler: scheduler,
 		weight:        1,
 	}

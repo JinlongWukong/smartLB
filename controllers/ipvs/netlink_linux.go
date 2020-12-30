@@ -46,7 +46,10 @@ func (h *netlinkHandle) EnsureAddressBind(address, devName string) (exist bool, 
 	if addr == nil {
 		return false, fmt.Errorf("error parse ip address: %s", address)
 	}
-	if err := h.AddrAdd(dev, &netlink.Addr{IPNet: netlink.NewIPNet(addr)}); err != nil {
+	// add ValidLft: 3153600000, PreferedLft: 0, to skip source ip selection
+	// ValidLft should be forever, but not supported by github.com/vishvananda/netlink
+	// so set to 3153600000, mean 100 years
+	if err := h.AddrAdd(dev, &netlink.Addr{IPNet: netlink.NewIPNet(addr), ValidLft: 3153600000, PreferedLft: 0}); err != nil {
 		// "EEXIST" will be returned if the address is already bound to device
 		if err == unix.EEXIST {
 			return true, nil

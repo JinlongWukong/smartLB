@@ -1,7 +1,9 @@
 apiVersion: lb.my.domain/v1
 kind: SmartLB
 metadata:
-  name: smartlb-sample
+  name: echo-server
 spec:
-  # Add fields here
-  foo: bar
+  service: echo-server
+  namespace: default
+  vip: 192.168.122.100
+  scheduler: rr
