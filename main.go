@@ -20,6 +20,8 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -50,12 +52,16 @@ func main() {
 	var enableLeaderElection bool
 	var localMode bool
 	var bindInterface string
+	var syncPeriod time.Duration
+	var autoSync bool
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8081", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&localMode, "enable-local-mode", true, "whether run this controller on lvs server")
+	flag.BoolVar(&autoSync, "auto-sync", true, "whether enable ipvs rules auto refresh")
+	flag.DurationVar(&syncPeriod, "sync-period", 60*time.Second, "the interval of how often ipvs rules are refresh")
 	flag.StringVar(&bindInterface, "bind-interface", "", "which interface the vip will bind")
 	flag.Parse()
 
@@ -67,6 +73,16 @@ func main() {
 			setupLog.Error(errors.New("the bind interface must be give if local mode enabled"), "program exited")
 			os.Exit(1)
 		}
+	}
+
+	// Enable auto sync to refresh ipvs rules
+	if autoSync {
+		go func() {
+			for {
+				time.Sleep(syncPeriod)
+				controllers.Events <- event.GenericEvent{}
+			}
+		}()
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
