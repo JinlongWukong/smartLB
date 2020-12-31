@@ -22,6 +22,7 @@ spec:
 
 ## Installation
 
+### Way1, installed on LVS server (recommended) 
 - Compile to get the binary program, 
 find the environment which have golang 1.13+ and kubectl, kustomize installed and configure with cluster
 
@@ -39,11 +40,14 @@ make install
 - Copy the smartlb binary program to LVS server and run 
 
 ```
-# need put tls certificate under/tmp/k8s-webhook-server/serving-certs/ as name tls.crt, tls.key
+# Before run 
+# need prepare tls certificate under /tmp/k8s-webhook-server/serving-certs/ as name tls.crt, tls.key
+# need figure out which interface should be used for vip binding
 ./smartlb --bind-interface eth0
 ```
 
 ```
+# For more options, reference as below
 Usage of ./smartlb:
   -auto-sync
         whether enable ipvs rules auto refresh (default true)
@@ -62,6 +66,13 @@ Usage of ./smartlb:
   -sync-period duration
         the interval of how often ipvs rules are refresh (default 1m0s)
 ```
+
+### Way2, installed inside k8s cluster
+  **Notes:** This way looks normal, but will be a little complicated to deploy, also need a remote agent running at LVS server as subscribe webhook
+   
+   
+   Please follow kubebuilder document to learn how to install it in this way
+    
 ## Notices
 - This project has been verified on kubernetes v1.18.3
 
