@@ -39,6 +39,7 @@ make install
 - Copy the smartlb binary program to LVS server and run 
 
 ```
+# need put tls certificate under/tmp/k8s-webhook-server/serving-certs/ as name tls.crt, tls.key
 ./smartlb --bind-interface eth0
 ```
 
