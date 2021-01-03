@@ -142,14 +142,6 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 	log.Info("Kubernetes service ports info: " + fmt.Sprint(ports))
 
-	// fetch endpoints info
-	endpoint := &corev1.Endpoints{}
-	if err := r.Get(ctx, objKey, endpoint); err != nil {
-		log.Error(err, "unable to fetch endpoints")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	log.Info("Fetched kubernetes endpoints: " + endpoint.Name)
-
 	// Define custom finalizer
 	myFinalizerName := "cleanup"
 	if smartlb.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -195,6 +187,14 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			fmt.Sprintf("service %s was updated with a ExternalIP %s", svc.Name, smartlb.Spec.Vip))
 		return ctrl.Result{}, nil
 	}
+
+	// fetch endpoints info
+	endpoint := &corev1.Endpoints{}
+	if err := r.Get(ctx, objKey, endpoint); err != nil {
+		log.Error(err, "unable to fetch endpoints")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log.Info("Fetched kubernetes endpoints: " + endpoint.Name)
 
 	// fetch nodes info
 	nodesInfo := map[string]string{}
@@ -288,6 +288,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
+	// In case of generic event, configure LB each reconcile call
 	// Print loadBalance configuration
 	output, _ := json.Marshal(smartlb.Status)
 	log.Info("LB configuration: " + string(output))
