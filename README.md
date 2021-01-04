@@ -2,6 +2,8 @@
 
 Use LVS as external loadbalancer for kubernetes ingress traffic
 
+And this LB was implemented by using kubernetes operator
+
 ```
 apiVersion: lb.my.domain/v1
 kind: SmartLB
