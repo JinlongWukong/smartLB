@@ -69,14 +69,14 @@ func (r *SmartLB) ValidateCreate() error {
 	}
 
 	// Make sure address unique
-	if err := ipam.VipPool.MarkOwner(r.Spec.Vip, r.Spec.String()); err != nil {
+	if err := ipam.VipPool.Acquire(r.Spec.Vip, r.Spec.String()); err != nil {
 		return err
 	}
 
 	// Release address if error
 	if err := r.ValidateSmartLB(); err != nil {
 		log.Info("Error occur, address will be released", "address: ", r.Spec.Vip)
-		ipam.VipPool.ReleaseOwner(r.Spec.Vip, r.Spec.String())
+		ipam.VipPool.Release(r.Spec.Vip, r.Spec.String())
 		return err
 	}
 
@@ -100,7 +100,7 @@ func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
 	}
 
 	// Make sure address unique
-	if err := ipam.VipPool.MarkOwner(r.Spec.Vip, r.Spec.String()); err != nil {
+	if err := ipam.VipPool.Acquire(r.Spec.Vip, r.Spec.String()); err != nil {
 		return err
 	}
 

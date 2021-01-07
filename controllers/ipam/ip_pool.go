@@ -33,8 +33,8 @@ func (c *SafeVipPool) Add(ips interface{}) error {
 	return nil
 }
 
-// Mark address in-use
-func (c *SafeVipPool) MarkOwner(ip string, owner string) error {
+// Acquire address
+func (c *SafeVipPool) Acquire(ip string, owner string) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -50,7 +50,7 @@ func (c *SafeVipPool) MarkOwner(ip string, owner string) error {
 }
 
 // Release address
-func (c *SafeVipPool) ReleaseOwner(ip string, owner string) error {
+func (c *SafeVipPool) Release(ip string, owner string) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

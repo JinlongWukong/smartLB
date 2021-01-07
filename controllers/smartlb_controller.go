@@ -98,7 +98,7 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 		}
 	}
 
-	ipam.VipPool.ReleaseOwner(smartlb.Spec.Vip, smartlb.Spec.String())
+	ipam.VipPool.Release(smartlb.Spec.Vip, smartlb.Spec.String())
 
 	log.Info("The internal/external dependencies were deleted")
 
@@ -293,7 +293,7 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	// Update ip pool
-	ipam.VipPool.MarkOwner(smartlb.Spec.Vip, smartlb.Spec.String())
+	ipam.VipPool.Acquire(smartlb.Spec.Vip, smartlb.Spec.String())
 
 	// In case of generic event, configure LB each reconcile call
 	// Print loadBalance configuration
