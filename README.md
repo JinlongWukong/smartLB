@@ -59,6 +59,8 @@ Usage of ./smartlb:
         Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
   -enable-local-mode
         whether run this controller on lvs server (default true)
+  -ip-range string
+        define vip pool range
   -kubeconfig string
         Paths to a kubeconfig. Only required if out-of-cluster.
   -master --kubeconfig
