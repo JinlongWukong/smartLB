@@ -32,6 +32,7 @@ import (
 	lbv1 "smartLB/api/v1"
 	"smartLB/controllers"
 	"smartLB/controllers/customize_webhook"
+	"smartLB/controllers/ipam"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,6 +53,7 @@ func main() {
 	var enableLeaderElection bool
 	var localMode bool
 	var bindInterface string
+	var ipRange string
 	var syncPeriod time.Duration
 	var autoSync bool
 
@@ -63,6 +65,7 @@ func main() {
 	flag.BoolVar(&autoSync, "auto-sync", true, "whether enable ipvs rules auto refresh")
 	flag.DurationVar(&syncPeriod, "sync-period", 60*time.Second, "the interval of how often ipvs rules are refresh")
 	flag.StringVar(&bindInterface, "bind-interface", "", "which interface the vip will bind")
+	flag.StringVar(&ipRange, "ip-range", "", "define vip pool range")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -72,6 +75,18 @@ func main() {
 		if bindInterface == "" {
 			setupLog.Error(errors.New("the bind interface must be give if local mode enabled"), "program exited")
 			os.Exit(1)
+		}
+	}
+
+	// Initial vip pool
+	if ipRange != "" {
+		cidr, err := ipam.ParseIPRange(ipRange)
+		if err != nil {
+			setupLog.Error(err, "ip range is wrong given, program exit")
+			os.Exit(1)
+		}
+		for _, item := range cidr {
+			ipam.VipPool.Add(ipam.GetIPs(item.String()))
 		}
 	}
 
@@ -110,11 +125,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Setup webhook
 	if err = (&lbv1.SmartLB{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SmartLB")
 		os.Exit(1)
 	}
 
+	// Register a backdoor endpoints
 	mgr.GetWebhookServer().Register("/request", &customize_webhook.ReqHandler{})
 	// +kubebuilder:scaffold:builder
 

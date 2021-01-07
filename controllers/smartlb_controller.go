@@ -36,7 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
 	lbv1 "smartLB/api/v1"
+	"smartLB/controllers/ipam"
 	"smartLB/controllers/ipvs"
 )
 
@@ -95,6 +97,8 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 			return err
 		}
 	}
+
+	ipam.VipPool.ReleaseOwner(smartlb.Spec.Vip, smartlb.Spec.String())
 
 	log.Info("The internal/external dependencies were deleted")
 
@@ -287,6 +291,9 @@ func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 		return ctrl.Result{}, nil
 	}
+
+	// Update ip pool
+	ipam.VipPool.MarkOwner(smartlb.Spec.Vip, smartlb.Spec.String())
 
 	// In case of generic event, configure LB each reconcile call
 	// Print loadBalance configuration

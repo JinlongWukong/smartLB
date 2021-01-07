@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strconv"
 )
@@ -34,6 +35,10 @@ type SmartLBSpec struct {
 	Vip       string `json:"vip"`
 	Scheduler string `json:"scheduler,omitempty"`
 	Subscribe string `json:"subscribe,omitempty"`
+}
+
+func (slb SmartLBSpec) String() string {
+	return fmt.Sprintf("%s,%s", slb.Namespace, slb.Service)
 }
 
 // SmartLBStatus defines the observed state of SmartLB

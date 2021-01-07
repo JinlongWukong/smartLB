@@ -21,10 +21,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"smartLB/controllers/ipam"
 )
 
 // log is for logging in this package.
-var log = logf.Log.WithName("smartlb-resource")
+var log = logf.Log.WithName("smartlb-webhook")
 
 func (r *SmartLB) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -42,7 +43,15 @@ var _ webhook.Defaulter = &SmartLB{}
 func (r *SmartLB) Default() {
 	log.Info("default", "name", r.Name)
 
-	// TODO(user): fill in your defaulting logic.
+	// Apply ip of not given
+	if r.Spec.Vip == "" {
+		if ip, err := ipam.VipPool.Apply(r.Spec.String()); err != nil {
+			log.Error(err, "apply ip failed")
+		} else {
+			log.Info("Apply IP returned", "address: ", ip)
+			r.Spec.Vip = ip
+		}
+	}
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
@@ -54,12 +63,46 @@ var _ webhook.Validator = &SmartLB{}
 func (r *SmartLB) ValidateCreate() error {
 	log.Info("validate create", "name", r.Name)
 
-	return r.ValidateSmartLB()
+	// Check Vip is given
+	if r.Spec.Vip == "" {
+		return fmt.Errorf("VIP should not be empty")
+	}
+
+	// Make sure address unique
+	if err := ipam.VipPool.MarkOwner(r.Spec.Vip, r.Spec.String()); err != nil {
+		return err
+	}
+
+	// Release address if error
+	if err := r.ValidateSmartLB(); err != nil {
+		log.Info("Error occur, address will be released", "address: ", r.Spec.Vip)
+		ipam.VipPool.ReleaseOwner(r.Spec.Vip, r.Spec.String())
+		return err
+	}
+
+	return nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
 	log.Info("validate update", "name", r.Name)
+
+	//var oldSmartLB = old.(*SmartLB)
+
+	// The object is being deleted, return
+	if !r.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	// Check Vip is given
+	if r.Spec.Vip == "" {
+		return fmt.Errorf("VIP should not be empty")
+	}
+
+	// Make sure address unique
+	if err := ipam.VipPool.MarkOwner(r.Spec.Vip, r.Spec.String()); err != nil {
+		return err
+	}
 
 	return r.ValidateSmartLB()
 }
@@ -76,6 +119,7 @@ func (r *SmartLB) ValidateDelete() error {
 func (r *SmartLB) ValidateSmartLB() error {
 	log.Info("validate smartLB", "name", r.Name)
 
+	// Check subscriber is reachable
 	if uri := r.Spec.Subscribe; uri != "" {
 		resp, err := http.Get(uri)
 		if err != nil {
@@ -87,7 +131,8 @@ func (r *SmartLB) ValidateSmartLB() error {
 			log.Info("Subscribe uri check passed!")
 		} else {
 			log.Info("Subscribe uri check failed! ", "unexpected status code", resp.StatusCode)
-			return fmt.Errorf("subscribe uri return status code: %v", resp.StatusCode)
+			err = fmt.Errorf("subscribe uri return status code: %v", resp.StatusCode)
+			return err
 		}
 	}
 
