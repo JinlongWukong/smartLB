@@ -63,6 +63,10 @@ var _ webhook.Validator = &SmartLB{}
 func (r *SmartLB) ValidateCreate() error {
 	log.Info("validate create", "name", r.Name)
 
+	if err := r.ValidateSmartLB(); err != nil {
+		return err
+	}
+
 	// Check Vip is given
 	if r.Spec.Vip == "" {
 		return fmt.Errorf("VIP should not be empty")
@@ -70,13 +74,6 @@ func (r *SmartLB) ValidateCreate() error {
 
 	// Make sure address unique
 	if err := ipam.VipPool.Acquire(r.Spec.Vip, r.Spec.String()); err != nil {
-		return err
-	}
-
-	// Release address if error
-	if err := r.ValidateSmartLB(); err != nil {
-		log.Info("Error occur, address will be released", "address: ", r.Spec.Vip)
-		ipam.VipPool.Release(r.Spec.Vip, r.Spec.String())
 		return err
 	}
 
@@ -87,14 +84,18 @@ func (r *SmartLB) ValidateCreate() error {
 func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
 	log.Info("validate update", "name", r.Name)
 
-	//var oldSmartLB = old.(*SmartLB)
-
 	// The object is being deleted, return
 	if !r.DeletionTimestamp.IsZero() {
 		return nil
 	}
 
-	// Check Vip is given
+	if err := r.ValidateSmartLB(); err != nil {
+		return err
+	}
+
+	var oldSmartLB = old.(*SmartLB)
+
+	// Make sure address not empty
 	if r.Spec.Vip == "" {
 		return fmt.Errorf("VIP should not be empty")
 	}
@@ -104,7 +105,12 @@ func (r *SmartLB) ValidateUpdate(old runtime.Object) error {
 		return err
 	}
 
-	return r.ValidateSmartLB()
+	// Release old vip if changed
+	if oldSmartLB.Spec.Vip != r.Spec.Vip {
+		ipam.VipPool.Release(oldSmartLB.Spec.Vip, oldSmartLB.Spec.String())
+	}
+
+	return nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
