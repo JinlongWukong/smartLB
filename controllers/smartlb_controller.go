@@ -112,7 +112,7 @@ func (r *SmartLBReconciler) deleteExternalDependency(smartlb *lbv1.SmartLB, svc 
 // +kubebuilder:rbac:groups="",resources=services/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=endpoints/status,verbs=get
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get
 
 func (r *SmartLBReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
