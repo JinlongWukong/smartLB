@@ -122,12 +122,13 @@ func main() {
 
 	// mock server1
 	go func() {
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			eventString := "worked!"
-			broker.Notifier <- []byte(eventString)
-			w.WriteHeader(http.StatusAccepted)
-		})
-		log.Fatal("HTTP server error: ", http.ListenAndServe(":8250", nil))
+		mux := http.NewServeMux()
+                mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+                        eventString := "worked!"
+                        broker.Notifier <- []byte(eventString)
+                        w.WriteHeader(http.StatusAccepted)
+                })
+                log.Fatal("HTTP server error: ", http.ListenAndServe(":8250", mux))
 	}()
 
 	// mock server2, logic server
